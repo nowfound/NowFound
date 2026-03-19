@@ -27,7 +27,6 @@ jobs:
 
       - name: Setup Project Files
         run: |
-          # Folders बनवा
           mkdir -p app/src/main/java/com/nowfound/app
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
@@ -37,17 +36,13 @@ jobs:
           mkdir -p app/src/main/res/mipmap-xxhdpi
           mkdir -p app/src/main/res/mipmap-xxxhdpi
 
-          # google-services.json secret मधून
           echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > app/google-services.json
-
-          # Logo secret मधून (base64)
           echo '${{ secrets.APP_LOGO }}' | base64 -d > app/src/main/res/mipmap-hdpi/ic_launcher.png
           echo '${{ secrets.APP_LOGO }}' | base64 -d > app/src/main/res/mipmap-mdpi/ic_launcher.png
           echo '${{ secrets.APP_LOGO }}' | base64 -d > app/src/main/res/mipmap-xhdpi/ic_launcher.png
           echo '${{ secrets.APP_LOGO }}' | base64 -d > app/src/main/res/mipmap-xxhdpi/ic_launcher.png
           echo '${{ secrets.APP_LOGO }}' | base64 -d > app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
 
-          # settings.gradle
           cat > settings.gradle << 'EOF'
           pluginManagement {
               repositories {
@@ -67,7 +62,6 @@ jobs:
           include ':app'
           EOF
 
-          # build.gradle (project level)
           cat > build.gradle << 'EOF'
           plugins {
               id 'com.android.application' version '8.1.0' apply false
@@ -75,14 +69,12 @@ jobs:
           }
           EOF
 
-          # gradle.properties
           cat > gradle.properties << 'EOF'
           android.useAndroidX=true
           android.enableJetifier=true
           android.suppressUnsupportedCompileSdk=34
           EOF
 
-          # app/build.gradle
           cat > app/build.gradle << 'EOF'
           plugins {
               id 'com.android.application'
@@ -118,7 +110,6 @@ jobs:
           }
           EOF
 
-          # AndroidManifest.xml
           cat > app/src/main/AndroidManifest.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.nowfound.app">
@@ -161,11 +152,11 @@ jobs:
           </manifest>
           EOF
 
-          # activity_main.xml
           cat > app/src/main/res/layout/activity_main.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
-              android:layout_width="match_parent" android:layout_height="match_parent">
+              android:layout_width="match_parent" android:layout_height="match_parent"
+              android:background="#FFFFFF">
               <ProgressBar android:id="@+id/progressBar"
                   style="?android:attr/progressBarStyleHorizontal"
                   android:layout_width="match_parent" android:layout_height="4dp"
@@ -195,27 +186,19 @@ jobs:
                   <Button android:id="@+id/retryButton"
                       android:layout_width="wrap_content" android:layout_height="wrap_content"
                       android:text="पुन्हा प्रयत्न करा"
-                      android:backgroundTint="@color/colorPrimary"
+                      android:backgroundTint="#1565C0"
                       android:textColor="#FFFFFF" android:layout_marginTop="24dp"
                       android:paddingStart="32dp" android:paddingEnd="32dp" />
               </LinearLayout>
           </RelativeLayout>
           EOF
 
-          # colors.xml
           cat > app/src/main/res/values/colors.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
               <color name="colorPrimary">#1565C0</color>
           </resources>
           EOF
-
-      - name: Copy Java Files
-        run: |
-          cp app/src/main/java/com/nowfound/app/MainActivity.java \
-             app/src/main/java/com/nowfound/app/MainActivity.java 2>/dev/null || true
-          cp app/src/main/java/com/nowfound/app/MyFirebaseMessagingService.java \
-             app/src/main/java/com/nowfound/app/MyFirebaseMessagingService.java 2>/dev/null || true
 
       - name: Build Debug APK
         run: gradle assembleDebug
