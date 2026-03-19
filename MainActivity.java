@@ -1,254 +1,170 @@
 package com.nowfound.app;
 
-import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.Context;
-import android.content.pm.PackageManager;
 import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
 import android.os.Build;
 import android.os.Bundle;
-import android.webkit.*;
-import android.widget.*;
-import android.view.View;
+import android.webkit.PermissionRequest;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.webkit.JavascriptInterface;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import android.widget.Button;
+import android.graphics.Color;
+import android.view.Gravity;
+import android.view.ViewGroup;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import com.google.firebase.messaging.FirebaseMessaging;
 import android.util.Log;
+import android.Manifest;
+import androidx.core.app.ActivityCompat;
 
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "NowFound";
-    private static final String WEBSITE_URL = "https://smart-qr.free.nf/smart-qr/home.php";
-    private static final int PERMISSION_REQUEST_CODE = 100;
+    private static final String URL = "https://smart-qr.free.nf/smart-qr/home.php";
+    private static final int PERM_CODE = 100;
 
     private WebView webView;
-    private ProgressBar progressBar;
-    private SwipeRefreshLayout swipeRefresh;
-    private LinearLayout noInternetLayout;
+    private LinearLayout noInternetView;
     private String fcmToken = "";
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
 
-        webView = findViewById(R.id.webView);
-        progressBar = findViewById(R.id.progressBar);
-        swipeRefresh = findViewById(R.id.swipeRefresh);
-        noInternetLayout = findViewById(R.id.noInternetLayout);
-        Button retryBtn = findViewById(R.id.retryButton);
+        // Root Layout — XML layout नाही वापरत
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.WHITE);
 
-        // Permissions मागा
-        requestAppPermissions();
+        // WebView
+        webView = new WebView(this);
+        LinearLayout.LayoutParams wpLp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        webView.setLayoutParams(wpLp);
 
-        // FCM Token आधी मिळवा
-        getFCMToken();
+        // No Internet View
+        noInternetView = new LinearLayout(this);
+        noInternetView.setOrientation(LinearLayout.VERTICAL);
+        noInternetView.setGravity(Gravity.CENTER);
+        noInternetView.setBackgroundColor(Color.WHITE);
+        noInternetView.setVisibility(android.view.View.GONE);
+        LinearLayout.LayoutParams niLp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        noInternetView.setLayoutParams(niLp);
+
+        TextView msg = new TextView(this);
+        msg.setText("📡 Internet नाही!\nकृपया इंटरनेट तपासा.");
+        msg.setTextSize(18);
+        msg.setGravity(Gravity.CENTER);
+        msg.setTextColor(Color.DKGRAY);
+        msg.setPadding(40, 0, 40, 40);
+
+        Button retry = new Button(this);
+        retry.setText("पुन्हा प्रयत्न करा");
+        retry.setOnClickListener(v -> {
+            if (isOnline()) {
+                noInternetView.setVisibility(android.view.View.GONE);
+                webView.setVisibility(android.view.View.VISIBLE);
+                webView.loadUrl(URL);
+            }
+        });
+
+        noInternetView.addView(msg);
+        noInternetView.addView(retry);
+        root.addView(webView);
+        root.addView(noInternetView);
+        setContentView(root);
+
+        // Permissions
+        requestPerms();
+
+        // FCM Token
+        FirebaseMessaging.getInstance().getToken()
+            .addOnSuccessListener(t -> { fcmToken = t; Log.d(TAG, "FCM: " + t); });
 
         // WebView Settings
-        WebSettings settings = webView.getSettings();
-        settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);
-        settings.setDatabaseEnabled(true);
-        settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setAllowFileAccess(true);
-        settings.setLoadWithOverviewMode(true);
-        settings.setUseWideViewPort(true);
-        settings.setBuiltInZoomControls(false);
-        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        WebSettings ws = webView.getSettings();
+        ws.setJavaScriptEnabled(true);
+        ws.setDomStorageEnabled(true);
+        ws.setDatabaseEnabled(true);
+        ws.setMediaPlaybackRequiresUserGesture(false);
+        ws.setAllowFileAccess(true);
+        ws.setLoadWithOverviewMode(true);
+        ws.setUseWideViewPort(true);
+        ws.setBuiltInZoomControls(false);
+        ws.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
-        // JavaScript Bridge — App → Website
-        webView.addJavascriptInterface(new WebAppInterface(), "AndroidBridge");
+        // JS Bridge
+        webView.addJavascriptInterface(new JSBridge(), "AndroidBridge");
 
-        // Camera & Mic permission for WebRTC
+        // Camera/Mic for WebRTC
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
-            public void onPermissionRequest(PermissionRequest request) {
-                runOnUiThread(() -> request.grant(request.getResources()));
-            }
-
-            @Override
-            public void onProgressChanged(WebView view, int progress) {
-                progressBar.setProgress(progress);
-                progressBar.setVisibility(progress < 100 ? View.VISIBLE : View.GONE);
+            public void onPermissionRequest(PermissionRequest r) {
+                runOnUiThread(() -> r.grant(r.getResources()));
             }
         });
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
-            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                view.loadUrl(request.getUrl().toString());
-                return true;
+            public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
+                v.loadUrl(r.getUrl().toString()); return true;
             }
-
             @Override
-            public void onPageFinished(WebView view, String url) {
-                swipeRefresh.setRefreshing(false);
-                progressBar.setVisibility(View.GONE);
-
-                // Page load झाल्यावर FCM Token website ला पाठवा
-                injectFCMToken(view);
-            }
-
-            @Override
-            public void onReceivedError(WebView view, int errorCode,
-                                        String description, String failingUrl) {
-                swipeRefresh.setRefreshing(false);
-                showNoInternet();
-            }
-        });
-
-        // Swipe to Refresh
-        swipeRefresh.setColorSchemeResources(R.color.colorPrimary);
-        swipeRefresh.setOnRefreshListener(() -> {
-            if (isInternetAvailable()) {
-                hideNoInternet();
-                webView.reload();
-            } else {
-                swipeRefresh.setRefreshing(false);
-                showNoInternet();
-            }
-        });
-
-        // Retry Button
-        retryBtn.setOnClickListener(v -> {
-            if (isInternetAvailable()) {
-                hideNoInternet();
-                loadWebsite();
-            } else {
-                showNoInternet();
-            }
-        });
-
-        // Website Load
-        if (isInternetAvailable()) {
-            loadWebsite();
-        } else {
-            showNoInternet();
-        }
-    }
-
-    // FCM Token मिळवा
-    private void getFCMToken() {
-        FirebaseMessaging.getInstance().getToken()
-            .addOnCompleteListener(task -> {
-                if (task.isSuccessful() && task.getResult() != null) {
-                    fcmToken = task.getResult();
-                    Log.d(TAG, "FCM Token: " + fcmToken);
-                } else {
-                    Log.e(TAG, "FCM Token failed", task.getException());
+            public void onPageFinished(WebView v, String u) {
+                if (!fcmToken.isEmpty()) {
+                    v.evaluateJavascript("window.fcmToken='" + fcmToken + "';" +
+                        "if(typeof receiveFCMToken==='function'){receiveFCMToken('" + fcmToken + "');}", null);
                 }
-            });
-    }
-
-    // FCM Token WebView मध्ये inject करा
-    private void injectFCMToken(WebView view) {
-        if (fcmToken != null && !fcmToken.isEmpty()) {
-            // window.fcmToken set करा
-            String js = "javascript:(function() {" +
-                "window.fcmToken = '" + fcmToken + "';" +
-                // Database मध्ये `id` field आहे — user_id नाही
-                "var userId = document.getElementById('id') ? " +
-                "document.getElementById('id').value : " +
-                "localStorage.getItem('id');" +
-                "if(typeof saveFCMToken === 'function') {" +
-                "   saveFCMToken('" + fcmToken + "', userId);" +
-                "}" +
-                "console.log('FCM Token injected: " + fcmToken + "');" +
-                "})()";
-            view.evaluateJavascript(js, null);
-        }
-    }
-
-    // JavaScript Interface — Website → App
-    public class WebAppInterface {
-        @JavascriptInterface
-        public String getFCMToken() {
-            return fcmToken;
-        }
-
-        @JavascriptInterface
-        public void tokenSaved(String status) {
-            Log.d(TAG, "Token save status: " + status);
-        }
-    }
-
-    private void requestAppPermissions() {
-        String[] permissions;
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            // Android 13+
-            permissions = new String[]{
-                Manifest.permission.CAMERA,
-                Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
-                Manifest.permission.MODIFY_AUDIO_SETTINGS,
-                Manifest.permission.POST_NOTIFICATIONS
-            };
-        } else {
-            permissions = new String[]{
-                Manifest.permission.CAMERA,
-                Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
-                Manifest.permission.MODIFY_AUDIO_SETTINGS
-            };
-        }
-
-        boolean allGranted = true;
-        for (String permission : permissions) {
-            if (ContextCompat.checkSelfPermission(this, permission)
-                    != PackageManager.PERMISSION_GRANTED) {
-                allGranted = false;
-                break;
             }
-        }
+            @Override
+            public void onReceivedError(WebView v, int c, String d, String u) {
+                noInternetView.setVisibility(android.view.View.VISIBLE);
+                webView.setVisibility(android.view.View.GONE);
+            }
+        });
 
-        if (!allGranted) {
-            ActivityCompat.requestPermissions(this, permissions, PERMISSION_REQUEST_CODE);
-        }
+        if (isOnline()) webView.loadUrl(URL);
+        else { noInternetView.setVisibility(android.view.View.VISIBLE); webView.setVisibility(android.view.View.GONE); }
     }
 
-    private void loadWebsite() {
-        progressBar.setVisibility(View.VISIBLE);
-        webView.loadUrl(WEBSITE_URL);
+    public class JSBridge {
+        @JavascriptInterface
+        public String getToken() { return fcmToken; }
     }
 
-    private void showNoInternet() {
-        webView.setVisibility(View.GONE);
-        noInternetLayout.setVisibility(View.VISIBLE);
+    private void requestPerms() {
+        String[] p = Build.VERSION.SDK_INT >= 33 ? new String[]{
+            Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.MODIFY_AUDIO_SETTINGS, Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.POST_NOTIFICATIONS
+        } : new String[]{
+            Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.MODIFY_AUDIO_SETTINGS, Manifest.permission.ACCESS_FINE_LOCATION
+        };
+        ActivityCompat.requestPermissions(this, p, PERM_CODE);
     }
 
-    private void hideNoInternet() {
-        webView.setVisibility(View.VISIBLE);
-        noInternetLayout.setVisibility(View.GONE);
-    }
-
-    private boolean isInternetAvailable() {
-        ConnectivityManager cm =
-            (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-        if (cm != null) {
-            NetworkCapabilities caps =
-                cm.getNetworkCapabilities(cm.getActiveNetwork());
-            return caps != null && (
-                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR));
-        }
-        return false;
+    private boolean isOnline() {
+        ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (cm == null) return false;
+        NetworkCapabilities nc = cm.getNetworkCapabilities(cm.getActiveNetwork());
+        return nc != null && (nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+            || nc.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR));
     }
 
     @Override
     public void onBackPressed() {
-        if (webView.canGoBack()) {
-            webView.goBack();
-        } else {
-            // App बंद करू नका — background मध्ये ठेवा
-            moveTaskToBack(true);
-        }
+        if (webView.canGoBack()) webView.goBack();
+        else moveTaskToBack(true);
     }
 }
