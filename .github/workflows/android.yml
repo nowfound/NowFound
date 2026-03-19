@@ -1,0 +1,227 @@
+name: Build NowFound APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install Gradle 8.2
+        run: |
+          wget -q https://services.gradle.org/distributions/gradle-8.2-bin.zip
+          unzip -q gradle-8.2-bin.zip
+          echo "$PWD/gradle-8.2/bin" >> $GITHUB_PATH
+
+      - name: Setup Project Files
+        run: |
+          # Folders बनवा
+          mkdir -p app/src/main/java/com/nowfound/app
+          mkdir -p app/src/main/res/layout
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/mipmap-mdpi
+          mkdir -p app/src/main/res/mipmap-hdpi
+          mkdir -p app/src/main/res/mipmap-xhdpi
+          mkdir -p app/src/main/res/mipmap-xxhdpi
+          mkdir -p app/src/main/res/mipmap-xxxhdpi
+
+          # google-services.json secret मधून
+          echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > app/google-services.json
+
+          # Logo secret मधून (base64)
+          echo '${{ secrets.APP_LOGO }}' | base64 -d > app/src/main/res/mipmap-hdpi/ic_launcher.png
+          echo '${{ secrets.APP_LOGO }}' | base64 -d > app/src/main/res/mipmap-mdpi/ic_launcher.png
+          echo '${{ secrets.APP_LOGO }}' | base64 -d > app/src/main/res/mipmap-xhdpi/ic_launcher.png
+          echo '${{ secrets.APP_LOGO }}' | base64 -d > app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+          echo '${{ secrets.APP_LOGO }}' | base64 -d > app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+
+          # settings.gradle
+          cat > settings.gradle << 'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "NowFound"
+          include ':app'
+          EOF
+
+          # build.gradle (project level)
+          cat > build.gradle << 'EOF'
+          plugins {
+              id 'com.android.application' version '8.1.0' apply false
+              id 'com.google.gms.google-services' version '4.4.0' apply false
+          }
+          EOF
+
+          # gradle.properties
+          cat > gradle.properties << 'EOF'
+          android.useAndroidX=true
+          android.enableJetifier=true
+          android.suppressUnsupportedCompileSdk=34
+          EOF
+
+          # app/build.gradle
+          cat > app/build.gradle << 'EOF'
+          plugins {
+              id 'com.android.application'
+              id 'com.google.gms.google-services'
+          }
+          android {
+              namespace 'com.nowfound.app'
+              compileSdk 33
+              defaultConfig {
+                  applicationId "com.nowfound.app"
+                  minSdk 21
+                  targetSdk 33
+                  versionCode 1
+                  versionName "1.0"
+                  multiDexEnabled true
+              }
+              buildTypes {
+                  release { minifyEnabled false }
+                  debug { debuggable true }
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_1_8
+                  targetCompatibility JavaVersion.VERSION_1_8
+              }
+          }
+          dependencies {
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+              implementation 'androidx.multidex:multidex:2.0.1'
+              implementation platform('com.google.firebase:firebase-bom:32.7.0')
+              implementation 'com.google.firebase:firebase-messaging'
+              implementation 'com.google.firebase:firebase-analytics'
+          }
+          EOF
+
+          # AndroidManifest.xml
+          cat > app/src/main/AndroidManifest.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.nowfound.app">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.CAMERA" />
+              <uses-permission android:name="android.permission.RECORD_AUDIO" />
+              <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <uses-permission android:name="android.permission.VIBRATE" />
+              <uses-permission android:name="android.permission.WAKE_LOCK" />
+              <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+              <uses-feature android:name="android.hardware.camera" android:required="false" />
+              <uses-feature android:name="android.hardware.microphone" android:required="false" />
+              <application
+                  android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:roundIcon="@mipmap/ic_launcher"
+                  android:label="NowFound"
+                  android:theme="@style/Theme.AppCompat.Light.NoActionBar"
+                  android:usesCleartextTraffic="true"
+                  android:hardwareAccelerated="true">
+                  <activity android:name=".MainActivity" android:exported="true"
+                      android:configChanges="orientation|screenSize|keyboardHidden">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+                  <service android:name=".MyFirebaseMessagingService" android:exported="false">
+                      <intent-filter>
+                          <action android:name="com.google.firebase.MESSAGING_EVENT" />
+                      </intent-filter>
+                  </service>
+                  <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="nowfound_calls" />
+                  <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@mipmap/ic_launcher" />
+              </application>
+          </manifest>
+          EOF
+
+          # activity_main.xml
+          cat > app/src/main/res/layout/activity_main.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent" android:layout_height="match_parent">
+              <ProgressBar android:id="@+id/progressBar"
+                  style="?android:attr/progressBarStyleHorizontal"
+                  android:layout_width="match_parent" android:layout_height="4dp"
+                  android:layout_alignParentTop="true"
+                  android:progressTint="#1565C0" android:visibility="gone" android:max="100" />
+              <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+                  android:id="@+id/swipeRefresh"
+                  android:layout_width="match_parent" android:layout_height="match_parent"
+                  android:layout_below="@id/progressBar">
+                  <WebView android:id="@+id/webView"
+                      android:layout_width="match_parent" android:layout_height="match_parent" />
+              </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+              <LinearLayout android:id="@+id/noInternetLayout"
+                  android:layout_width="match_parent" android:layout_height="match_parent"
+                  android:orientation="vertical" android:gravity="center"
+                  android:padding="32dp" android:visibility="gone">
+                  <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                      android:text="📡" android:textSize="64sp" />
+                  <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                      android:text="Internet नाही!" android:textSize="22sp"
+                      android:textStyle="bold" android:textColor="#333333"
+                      android:layout_marginTop="16dp" />
+                  <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                      android:text="इंटरनेट तपासा आणि पुन्हा प्रयत्न करा"
+                      android:textSize="14sp" android:textColor="#666666"
+                      android:gravity="center" android:layout_marginTop="8dp" />
+                  <Button android:id="@+id/retryButton"
+                      android:layout_width="wrap_content" android:layout_height="wrap_content"
+                      android:text="पुन्हा प्रयत्न करा"
+                      android:backgroundTint="@color/colorPrimary"
+                      android:textColor="#FFFFFF" android:layout_marginTop="24dp"
+                      android:paddingStart="32dp" android:paddingEnd="32dp" />
+              </LinearLayout>
+          </RelativeLayout>
+          EOF
+
+          # colors.xml
+          cat > app/src/main/res/values/colors.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="colorPrimary">#1565C0</color>
+          </resources>
+          EOF
+
+      - name: Copy Java Files
+        run: |
+          cp app/src/main/java/com/nowfound/app/MainActivity.java \
+             app/src/main/java/com/nowfound/app/MainActivity.java 2>/dev/null || true
+          cp app/src/main/java/com/nowfound/app/MyFirebaseMessagingService.java \
+             app/src/main/java/com/nowfound/app/MyFirebaseMessagingService.java 2>/dev/null || true
+
+      - name: Build Debug APK
+        run: gradle assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: NowFound-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
